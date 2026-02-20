@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Tetris Ultimate</title>
+<style>
+body{
+  margin:0;
+  background:#0a0f1c;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  font-family:Arial;
+  color:white;
+}
+#gameContainer{
+  display:flex;
+  gap:20px;
+  margin-top:20px;
+}
+canvas{
+  background:#111;
+  box-shadow:0 0 30px #00f7ff;
+}
+#side{
+  display:flex;
+  flex-direction:column;
+  gap:20px;
+}
+button{
+  padding:10px;
+  background:#00f7ff;
+  border:none;
+  font-weight:bold;
+  cursor:pointer;
+}
+#mobileControls{
+  margin-top:20px;
+  display:none;
+  gap:10px;
+}
+#mobileControls button{
+  width:60px;
+  height:60px;
+  font-size:20px;
+}
+@media(max-width:768px){
+  #gameContainer{flex-direction:column;align-items:center;}
+  #mobileControls{display:flex;}
+}
+</style>
+</head>
+<body>
+
+<h1>NEON TETRIS</h1>
+
+<div id="gameContainer">
+<canvas id="game"></canvas>
+
+<div id="side">
+<div>
+<h3>NEXT</h3>
+<canvas id="next" width="120" height="120"></canvas>
+</div>
+<button onclick="togglePause()">PAUSE</button>
+<button onclick="restart()">RETRY</button>
+</div>
+</div>
+
+<div id="mobileControls">
+<button onclick="move(-1)">◀</button>
+<button onclick="rotate()">⟳</button>
+<button onclick="move(1)">▶</button>
+<button onclick="drop()">▼</button>
+</div>
+
+<script>
+const COLS=10;
+const ROWS=20;
+let BLOCK;
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const nextCanvas=document.getElementById("next");
+const nextCtx=nextCanvas.getContext("2d");
+
+function resize(){
+  BLOCK=Math.min(window.innerWidth*0.06,30);
+  canvas.width=COLS*BLOCK;
+  canvas.height=ROWS*BLOCK;
+}
+resize();
+window.addEventListener("resize",resize);
+
+const colors={
+I:"#00f7ff",O:"#ffe600",T:"#b400ff",
+L:"#ff7b00",J:"#0066ff",S:"#00ff66",Z:"#ff0033"
+};
+
+const pieces={
+I:[[1,1,1,1]],
+O:[[1,1],[1,1]],
+T:[[0,1,0],[1,1,1]],
+L:[[1,0,0],[1,1,1]],
+J:[[0,0,1],[1,1,1]],
+S:[[0,1,1],[1,1,0]],
+Z:[[1,1,0],[0,1,1]]
+};
+
+let board, current, next, x, y;
+let dropCounter=0;
+let dropInterval=700;
+let lastTime=0;
+let paused=false;
+let gameOver=false;
+let flash=0;
+let tetrisEffect=0;
+
+function createBoard(){
+  board=[];
+  for(let r=0;r<ROWS;r++){
+    board.push(Array(COLS).fill(0));
+  }
+}
+
+function randomPiece(){
+  const keys=Object.keys(pieces);
+  const name=keys[Math.floor(Math.random()*keys.length)];
+  return {name,shape:pieces[name]};
+}
+
+function spawn(){
+  current=next||randomPiece();
+  next=randomPiece();
+  x=3;
+  y=0;
+  if(collision(x,y,current.shape)){
+    gameOver=true;
+  }
+}
+
+function collision(px,py,shape){
+  for(let r=0;r<shape.length;r++){
+    for(let c=0;c<shape[r].length;c++){
+      if(shape[r][c]){
+        let nx=px+c;
+        let ny=py+r;
+        if(nx<0||nx>=COLS||ny>=ROWS) return true;
+        if(ny>=0 && board[ny][nx]) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function merge(){
+  current.shape.forEach((row,r)=>{
+    row.forEach((val,c)=>{
+      if(val) board[y+r][x+c]=colors[current.name];
+    });
+  });
+}
+
+function clearLines(){
+  let lines=0;
+  for(let r=ROWS-1;r>=0;r--){
+    if(board[r].every(cell=>cell)){
+      board.splice(r,1);
+      board.unshift(Array(COLS).fill(0));
+      lines++;
+      r++;
+    }
+  }
+  if(lines>0){
+    flash=10;
+    if(lines===4) tetrisEffect=40;
+  }
+}
+
+function rotate(){
+  if(paused||gameOver) return;
+  const newShape=current.shape[0].map((_,i)=>
+    current.shape.map(row=>row[i]).reverse()
+  );
+  if(!collision(x,y,newShape)){
+    current.shape=newShape;
+  }
+}
+
+function move(dir){
+  if(paused||gameOver) return;
+  if(!collision(x+dir,y,current.shape)) x+=dir;
+}
+
+function drop(){
+  if(paused||gameOver) return;
+  if(!collision(x,y+1,current.shape)){
+    y++;
+  }else{
+    merge();
+    clearLines();
+    spawn();
+  }
+  dropCounter=0;
+}
+
+function togglePause(){ paused=!paused; }
+
+function restart(){
+  createBoard();
+  gameOver=false;
+  paused=false;
+  spawn();
+}
+
+document.addEventListener("keydown",e=>{
+  if(e.key==="ArrowLeft") move(-1);
+  if(e.key==="ArrowRight") move(1);
+  if(e.key==="ArrowDown") drop();
+  if(e.key==="ArrowUp") rotate();
+  if(e.key==="p") togglePause();
+});
+
+function drawCell(cx,cy,color,ghost=false){
+  ctx.globalAlpha=ghost?0.3:1;
+  ctx.fillStyle=color;
+  ctx.shadowColor=color;
+  ctx.shadowBlur=ghost?5:15;
+  ctx.fillRect(cx*BLOCK,cy*BLOCK,BLOCK,BLOCK);
+  ctx.strokeStyle="rgba(255,255,255,0.3)";
+  ctx.strokeRect(cx*BLOCK,cy*BLOCK,BLOCK,BLOCK);
+  ctx.shadowBlur=0;
+  ctx.globalAlpha=1;
+}
+
+function drawNext(){
+  nextCtx.clearRect(0,0,120,120);
+  next.shape.forEach((row,r)=>{
+    row.forEach((val,c)=>{
+      if(val){
+        nextCtx.fillStyle=colors[next.name];
+        nextCtx.fillRect(c*30,r*30,30,30);
+      }
+    });
+  });
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  board.forEach((row,r)=>{
+    row.forEach((val,c)=>{
+      if(val) drawCell(c,r,val);
+    });
+  });
+
+  let ghostY=y;
+  while(!collision(x,ghostY+1,current.shape)) ghostY++;
+  current.shape.forEach((row,r)=>{
+    row.forEach((val,c)=>{
+      if(val) drawCell(x+c,ghostY+r,colors[current.name],true);
+    });
+  });
+
+  current.shape.forEach((row,r)=>{
+    row.forEach((val,c)=>{
+      if(val) drawCell(x+c,y+r,colors[current.name]);
+    });
+  });
+
+  if(flash>0){
+    ctx.fillStyle="rgba(255,255,255,0.3)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    flash--;
+  }
+
+  if(tetrisEffect>0){
+    ctx.fillStyle="rgba(0,255,255,"+(tetrisEffect/40)+")";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="#00f7ff";
+    ctx.font="bold 60px Arial";
+    ctx.textAlign="center";
+    ctx.fillText("TETRIS!",canvas.width/2,canvas.height/2);
+    tetrisEffect--;
+  }
+
+  if(paused){
+    ctx.fillStyle="rgba(0,0,0,0.7)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="#00f7ff";
+    ctx.font="40px Arial";
+    ctx.textAlign="center";
+    ctx.fillText("PAUSE",canvas.width/2,canvas.height/2);
+  }
+
+  if(gameOver){
+    ctx.fillStyle="rgba(0,0,0,0.7)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="red";
+    ctx.font="40px Arial";
+    ctx.textAlign="center";
+    ctx.fillText("GAME OVER",canvas.width/2,canvas.height/2);
+  }
+
+  drawNext();
+}
+
+function update(time=0){
+  const delta=time-lastTime;
+  lastTime=time;
+  if(!paused&&!gameOver){
+    dropCounter+=delta;
+    if(dropCounter>dropInterval) drop();
+  }
+  draw();
+  requestAnimationFrame(update);
+}
+
+createBoard();
+spawn();
+update();
+</script>
+</body>
+</html>
