@@ -102,8 +102,10 @@ function init(){
 board=Array.from({length:ROWS},()=>Array(COLS).fill(0));
 score=0;level=1;combo=0;
 dropInterval=800;
-gameOver=false;paused=false;
-backToBack=false;
+
+hold = null;      // ← 追加
+holdUsed = false; // ← 追加
+
 next=randomPiece();
 resetPiece();
 updateUI();
@@ -451,7 +453,7 @@ if(e.key===" ") hardDrop();
 if(e.key==="ArrowUp") rotateCW();
 if(e.key==="c"||e.key==="C") holdPiece();
 if(e.key==="p"||e.key==="P") paused=!paused;
-if(e.key==="r"||e.key==="R") init();
+if(e.key==="r"||e.key==="R") init();location.reload();
 });
 
 function update(time=0){
