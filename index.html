@@ -282,6 +282,14 @@ current.shape=old;
 else lastMoveRotate=true;
 }
 
+function rotateCCW(){ // 反時計回り
+const old=current.shape;
+const rotated=old[0].map((_,i)=>old.map(r=>r[i])).reverse();
+current.shape=rotated;
+    if(collision()) current.shape=old;
+}
+
+
 function holdPiece(){
 if(holdUsed) return;
 holdUsed=true;
@@ -451,6 +459,8 @@ if(e.key==="ArrowRight") move(1);
 if(e.key==="ArrowDown") softDrop();
 if(e.key===" ") hardDrop();
 if(e.key==="ArrowUp") rotateCW();
+if(e.key==="d"||e.key==="D") rotateCW();
+if(e.key==="a"||e.key==="A") rotateCCW();
 if(e.key==="c"||e.key==="C") holdPiece();
 if(e.key==="p"||e.key==="P") paused=!paused;
 if(e.key==="r"||e.key==="R") /*init();*/location.reload();
