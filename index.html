@@ -267,26 +267,107 @@ resetPiece();
 }
 
 function rotateCW(){
-const old=current.shape;
-const rotated=old[0].map((_,i)=>old.map(r=>r[i]).reverse());
-current.shape=rotated;
+  const old = current.shape;
 
-if(collision()){
-x++;
-if(collision()){
-x-=2;
-if(collision()){
-x++;
-current.shape=old;
-} } }
-else lastMoveRotate=true;
+  // 回転
+  const rotated = old[0].map((_, i) =>
+    old.map(r => r[i]).reverse()
+  );
+  current.shape = rotated;
+
+  // キック候補
+  const kicks = [
+    {x:0, y:0},
+    {x:1, y:0},
+    {x:-1, y:0},
+    {x:0, y:-1}
+  ];
+
+  for(const k of kicks){
+    x += k.x;
+    y += k.y;
+
+    if(!collision()){
+      lastMoveRotate = true;
+      return;
+    }
+
+    x -= k.x;
+    y -= k.y;
+  }
+
+  // 全部失敗したら元に戻す
+  current.shape = old;
 }
 
-function rotateCCW(){ // 反時計回り
-const old=current.shape;
-const rotated=old[0].map((_,i)=>old.map(r=>r[i])).reverse();
-current.shape=rotated;
-    if(collision()) current.shape=old;
+function rotateCCW(){
+  const old = current.shape;
+
+  // 反時計回り回転
+  const rotated = old[0].map((_, i) =>
+    old.map(r => r[r.length - 1 - i])
+  );
+  current.shape = rotated;
+
+  // キック候補
+  const kicks = [
+    {x:0, y:0},
+    {x:1, y:0},
+    {x:-1, y:0},
+    {x:0, y:-1}
+  ];
+
+  for(const k of kicks){
+    x += k.x;
+    y += k.y;
+
+    if(!collision()){
+      lastMoveRotate = true;
+      return;
+    }
+
+    x -= k.x;
+    y -= k.y;
+  }
+
+  // 全部失敗したら元に戻す
+  current.shape = old;
+}
+function rotate180(){
+  const old = current.shape;
+
+  // 180度回転
+  const rotated = old
+    .slice()
+    .reverse()
+    .map(row => row.slice().reverse());
+
+  current.shape = rotated;
+
+  const kicks = [
+    {x:0, y:0},
+    {x:1, y:0},
+    {x:-1, y:0},
+    {x:2, y:0},
+    {x:-2, y:0},
+    {x:0, y:-1}
+  ];
+
+  for(const k of kicks){
+    x += k.x;
+    y += k.y;
+
+    if(!collision()){
+      lastMoveRotate = true;
+      return;
+    }
+
+    x -= k.x;
+    y -= k.y;
+  }
+
+  // 失敗したら戻す
+  current.shape = old;
 }
 
 
@@ -461,6 +542,7 @@ if(e.key===" ") hardDrop();
 if(e.key==="ArrowUp") rotateCW();
 if(e.key==="d"||e.key==="D") rotateCW();
 if(e.key==="a"||e.key==="A") rotateCCW();
+if(e.key==="s"||e.key==="S") rotate180();
 if(e.key==="c"||e.key==="C") holdPiece();
 if(e.key==="p"||e.key==="P") paused=!paused;
 if(e.key==="r"||e.key==="R") /*init();*/location.reload();
