@@ -16,6 +16,8 @@ display:flex;
 flex-direction:column;
 align-items:center;
 overflow:hidden;
+user-select: none;
+  -webkit-user-select: none;
 }
 
 h1{
@@ -52,7 +54,7 @@ color:white;
 
 <div class="panel">
 <div>Score</div><div id="score">0</div>
-<div>Level</div><div id="level">1</div>
+<div>Lines</div><div id="lines">0</div>
 <div>Combo</div><div id="combo">0</div>
 
 <div style="margin-top:15px;">HOLD</div>
@@ -74,7 +76,7 @@ const holdCtx=holdCanvas.getContext("2d");
 
 let board,current,next,hold=null;
 let x,y;
-let score=0,level=1,combo=0;
+let score=0, combo=0, linesCleared=0; // level削除
 let dropInterval=800,dropCounter=0,lastTime=0;
 let holdUsed=false,lastMoveRotate=false;
 let particles=[],shockwaves=[],lasers=[];
@@ -166,77 +168,645 @@ lasers.push({x:i*SIZE+SIZE/2,alpha:1});
 }
 
 function clearLines(){
-let lines=0;
-let cleared=[];
+    let lines=0;
+    let cleared=[];
 
-for(let r=ROWS-1;r>=0;r--){
-if(board[r].every(v=>v)){
-cleared.push(r);
-board.splice(r,1);
-board.unshift(Array(COLS).fill(0));
-lines++;
-r++;
-}
-}
+    for(let r=ROWS-1;r>=0;r--){
+        if(board[r].every(v=>v)){
+            cleared.push(r);
+            board.splice(r,1);
+            board.unshift(Array(COLS).fill(0));
+            lines++;
+            r++;
+        }
+    }
 
-let tspin=false;
-if(current.name==="T" && lastMoveRotate){
-let corners=0;
-const cx=x+1,cy=y+1;
-[[cx-1,cy-1],[cx+1,cy-1],[cx-1,cy+1],[cx+1,cy+1]].forEach(([px,py])=>{
-if(px<0||px>=COLS||py>=ROWS||board[py]?.[px]) corners++;
-});
-if(corners>=3) tspin=true;
-}
+    let tspin=false;
+    if(current.name==="T" && lastMoveRotate){
+        let corners=0;
+        const cx=x+1,cy=y+1;
+        [[cx-1,cy-1],[cx+1,cy-1],[cx-1,cy+1],[cx+1,cy+1]].forEach(([px,py])=>{
+            if(px<0||px>=COLS||py>=ROWS||board[py]?.[px]) corners++;
+        });
+        if(corners>=3) tspin=true;
+    }
 
-let special=tspin||lines===4;
+    let special=tspin||lines===4;
 
-if(lines>0){
+    if(lines>0){
+        cleared.forEach(r=>{
+            for(let c=0;c<COLS;c++){
+                spawnExplosion(c,r,"#00f7ff");
+            }
+        });
 
-cleared.forEach(r=>{
-for(let c=0;c<COLS;c++){
-spawnExplosion(c,r,"#00f7ff");
-}
-});
+        spawnShockwave();
+        combo++;
 
-spawnShockwave();
-combo++;
+        if(special){
+            if(backToBack) score+=1200;
+            else score+=800;
+            backToBack=true;
 
-if(special){
-if(backToBack) score+=1200*level;
-else score+=800*level;
-backToBack=true;
+            if(tspin) effectText="T-SPIN!";
+            if(lines===4){ effectText="TETRIS!!!"; spawnTetrisLaser(); }
 
-if(tspin) effectText="T-SPIN!";
-if(lines===4){ effectText="TETRIS!!!"; spawnTetrisLaser(); }
+            effectTimer=40;
+        }else{
+            score+=lines*100;
+            backToBack=false;
+        }
 
-effectTimer=40;
-}else{
-score+=lines*100*level;
-backToBack=false;
-}
+        score+=combo*50;
 
-score+=combo*50;
+        linesCleared += lines; // ←累計ライン数を加算
 
-}else{
-combo=0;
-backToBack=false;
-}
+    }else{
+        combo=0;
+        backToBack=false;
+    }
 
-level=Math.floor(score/1000)+1;
-dropInterval=Math.max(100,800-(level-1)*60);
-updateUI();
-lastMoveRotate=false;
+    updateUI();
+    lastMoveRotate=false;
 }
 
 function updateUI(){
-scoreEl.textContent=score;
-levelEl.textContent=level;
-comboEl.textContent=combo;
+    scoreEl.textContent = score;
+    comboEl.textContent = combo;
+    linesEl.textContent = linesCleared; // レベル表示をライン数に
 }
 
 const scoreEl=document.getElementById("score");
-const levelEl=document.getElementById("level");
+const linesEl=document.getElementById("lines"); // 追加
+const comboEl=document.getElementById("combo");
+
+function move(d){
+x+=d;
+if(collision()) x-=d;
+}
+
+function softDrop(){
+if(paused||gameOver) return;
+
+y++;
+
+if(collision()){
+y--;
+merge();
+clearLines();
+resetPiece();
+}
+}
+
+function hardDrop(){
+if(paused||gameOver) return;
+while(!collision()) y++;
+y--;
+merge();
+clearLines();
+resetPiece();
+}
+
+function rotateCW(){
+  const old = current.shape;
+
+  // 回転
+  const rotated = old[0].map((_, i) =>
+    old.map(r => r[i]).reverse()
+  );
+  current.shape = rotated;
+
+  // キック候補
+  const kicks = [
+    {x:0, y:0},
+    {x:1, y:0},
+    {x:-1, y:0},
+    {x:0, y:-1}
+  ];
+
+  for(const k of kicks){
+    x += k.x;
+    y += k.y;
+
+    if(!collision()){
+      lastMoveRotate = true;
+      return;
+    }
+
+    x -= k.x;
+    y -= k.y;
+  }
+
+  // 全部失敗したら元に戻す
+  current.shape = old;
+}
+
+function rotateCCW(){
+  const old = current.shape;
+
+  // 反時計回り回転
+  const rotated = old[0].map((_, i) =>
+    old.map(r => r[r.length - 1 - i])
+  );
+  current.shape = rotated;
+
+  // キック候補
+  const kicks = [
+    {x:0, y:0},
+    {x:1, y:0},
+    {x:-1, y:0},
+    {x:0, y:-1}
+  ];
+
+  for(const k of kicks){
+    x += k.x;
+    y += k.y;
+
+    if(!collision()){
+      lastMoveRotate = true;
+      return;
+    }
+
+    x -= k.x;
+    y -= k.y;
+  }
+
+  // 全部失敗したら元に戻す
+  current.shape = old;
+}
+function rotate180(){
+  const old = current.shape;
+
+  // 180度回転
+  const rotated = old
+    .slice()
+    .reverse()
+    .map(row => row.slice().reverse());
+
+  current.shape = rotated;
+
+  const kicks = [
+    {x:0, y:0},
+    {x:1, y:0},
+    {x:-1, y:0},
+    {x:2, y:0},
+    {x:-2, y:0},
+    {x:0, y:-1}
+  ];
+
+  for(const k of kicks){
+    x += k.x;
+    y += k.y;
+
+    if(!collision()){
+      lastMoveRotate = true;
+      return;
+    }
+
+    x -= k.x;
+    y -= k.y;
+  }
+
+  // 失敗したら戻す
+  current.shape = old;
+}
+
+
+function holdPiece(){
+if(holdUsed) return;
+holdUsed=true;
+if(!hold){ hold=current; resetPiece(); }
+else{
+[current,hold]=[hold,current];
+x=3;y=0;
+}
+}
+
+function drawCell(cx,cy,color,ghost=false){
+const px=cx*SIZE,py=cy*SIZE;
+
+ctx.save();
+
+// ゴースト透明
+ctx.globalAlpha = ghost ? 0.25 : 1;
+
+// ネオン発光
+ctx.shadowColor = color;
+ctx.shadowBlur = 25;
+ctx.fillStyle = color;
+ctx.fillRect(px,py,SIZE,SIZE);
+
+// 内側白枠
+ctx.shadowBlur = 0;
+ctx.lineWidth = 2;
+ctx.strokeStyle = "white";
+ctx.strokeRect(px+3,py+3,SIZE-6,SIZE-6);
+
+ctx.restore();
+}
+function draw(){
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+board.forEach((row,ry)=>
+row.forEach((val,cx)=>{ if(val) drawCell(cx,ry,val); })
+);
+
+let gy=y;
+while(!collision(x,gy+1)) gy++;
+
+current.shape.forEach((r,ry)=>
+r.forEach((v,cx)=>{
+if(v) drawCell(x+cx,gy+ry,colors[current.name],true);
+})
+);
+
+current.shape.forEach((r,ry)=>
+r.forEach((v,cx)=>{
+if(v) drawCell(x+cx,y+ry,colors[current.name]);
+})
+);
+
+particles.forEach((p,i)=>{
+ctx.save();
+ctx.globalAlpha=p.life/40;
+ctx.shadowColor=p.color;
+ctx.shadowBlur=20;
+ctx.fillStyle=p.color;
+ctx.beginPath();
+ctx.arc(p.x,p.y,4,0,Math.PI*2);
+ctx.fill();
+ctx.restore();
+p.x+=p.vx;p.y+=p.vy;p.vy+=0.2;p.life--;
+if(p.life<=0) particles.splice(i,1);
+});
+
+shockwaves.forEach((s,i)=>{
+ctx.save();
+ctx.globalAlpha=s.alpha;
+ctx.strokeStyle="#00f7ff";
+ctx.lineWidth=8;
+ctx.shadowBlur=30;
+ctx.shadowColor="#00f7ff";
+ctx.beginPath();
+ctx.arc(canvas.width/2,canvas.height/2,s.radius,0,Math.PI*2);
+ctx.stroke();
+ctx.restore();
+s.radius+=15;s.alpha-=0.03;
+if(s.alpha<=0) shockwaves.splice(i,1);
+});
+
+lasers.forEach((l,i)=>{
+ctx.save();
+ctx.globalAlpha=l.alpha;
+ctx.strokeStyle="#00f7ff";
+ctx.lineWidth=4;
+ctx.shadowBlur=25;
+ctx.shadowColor="#00f7ff";
+ctx.beginPath();
+ctx.moveTo(l.x,0);
+ctx.lineTo(l.x,canvas.height);
+ctx.stroke();
+ctx.restore();
+l.alpha-=0.05;
+if(l.alpha<=0) lasers.splice(i,1);
+});
+
+if(effectTimer>0){
+ctx.fillStyle="rgba(0,255,255,"+(effectTimer/40)+")";
+ctx.fillRect(0,0,canvas.width,canvas.height);
+ctx.fillStyle="#00f7ff";
+ctx.font="bold 50px Arial";
+ctx.textAlign="center";
+ctx.fillText(effectText,canvas.width/2,canvas.height/2);
+effectTimer--;
+}
+
+if(paused){
+ctx.fillStyle="rgba(0,0,0,0.7)";
+ctx.fillRect(0,0,canvas.width,canvas.height);
+ctx.fillStyle="#00f7ff";
+ctx.font="bold 40px Arial";
+ctx.textAlign="center";
+ctx.fillText("PAUSED",canvas.width/2,canvas.height/2);
+}
+
+if(gameOver){
+ctx.fillStyle="rgba(0,0,0,0.8)";
+ctx.fillRect(0,0,canvas.width,canvas.height);
+ctx.fillStyle="#ff0044";
+ctx.font="bold 40px Arial";
+ctx.textAlign="center";
+ctx.fillText("GAME OVER",canvas.width/2,canvas.height/2-20);
+ctx.font="20px Arial";
+ctx.fillText("Press R to Restart",canvas.width/2,canvas.height/2+20);
+}
+
+drawMini(nextCtx,next);
+drawMini(holdCtx,hold);
+}
+
+function drawMini(ctx,piece){
+ctx.clearRect(0,0,120,120);
+if(!piece) return;
+
+piece.shape.forEach((r,ry)=>{
+r.forEach((v,cx)=>{
+if(v){
+
+const px=cx*25+30;
+const py=ry*25+30;
+
+// ネオン発光
+ctx.save();
+ctx.shadowColor = colors[piece.name];
+ctx.shadowBlur = 20;
+ctx.fillStyle = colors[piece.name];
+ctx.fillRect(px,py,25,25);
+
+// 白枠
+ctx.shadowBlur = 0;
+ctx.lineWidth = 2;
+ctx.strokeStyle = "white";
+ctx.strokeRect(px+3,py+3,19,19);
+
+ctx.restore();
+
+}
+});
+});
+}
+document.addEventListener("keydown",e=>{
+if(e.key==="ArrowLeft") move(-1);
+if(e.key==="ArrowRight") move(1);
+if(e.key==="ArrowDown") softDrop();
+if(e.key===" ") hardDrop();
+if(e.key==="ArrowUp") rotateCW();
+if(e.key==="d"||e.key==="D") rotateCW();
+if(e.key==="a"||e.key==="A") rotateCCW();
+if(e.key==="s"||e.key==="S") rotate180();
+if(e.key==="c"||e.key==="C") holdPiece();
+if(e.key==="p"||e.key==="P") paused=!paused;
+if(e.key==="r"||e.key==="R") /*init();*/location.reload();
+});
+
+function update(time=0){
+const delta=time-lastTime;
+lastTime=time;
+if(!paused&&!gameOver){
+dropCounter+=delta;
+if(dropCounter>dropInterval){
+softDrop();
+dropCounter=0;
+}
+}
+draw();
+requestAnimationFrame(update);
+}
+
+init();
+update();
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>BLOCKS NEON</title>
+<link rel="icon" href="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS8jV8y88XxNVwFE6Pq0IUOI_gsefgZbos3YA&s" sizes="16×16" type="image/png" /> 
+<style>
+:root{ --neon:#00f7ff; }
+
+body{
+margin:0;
+background:radial-gradient(circle at center,#0a0f1c,#000);
+font-family:Arial;
+display:flex;
+flex-direction:column;
+align-items:center;
+overflow:hidden;
+user-select: none;
+  -webkit-user-select: none;
+}
+
+h1{
+margin:10px;
+color:var(--neon);
+text-shadow:0 0 20px var(--neon);
+}
+
+#wrap{ display:flex; gap:20px; position:relative; }
+
+canvas{
+background:#000;
+border-radius:12px;
+box-shadow:0 0 40px var(--neon);
+}
+
+.panel{
+background:rgba(255,255,255,0.05);
+backdrop-filter:blur(10px);
+padding:15px;
+border-radius:16px;
+text-align:center;
+min-width:150px;
+color:white;
+}
+</style>
+</head>
+<body>
+
+<h1>BLOCKS NEON</h1>
+
+<div id="wrap">
+<canvas id="game" width="300" height="600"></canvas>
+
+<div class="panel">
+<div>Score</div><div id="score">0</div>
+<div>Lines</div><div id="lines">0</div>
+<div>Combo</div><div id="combo">0</div>
+
+<div style="margin-top:15px;">HOLD</div>
+<canvas id="hold" width="120" height="120"></canvas>
+
+<div style="margin-top:15px;">NEXT</div>
+<canvas id="next" width="120" height="120"></canvas>
+</div>
+</div>
+
+<script>
+const COLS=10,ROWS=20,SIZE=30;
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const nextCanvas=document.getElementById("next");
+const nextCtx=nextCanvas.getContext("2d");
+const holdCanvas=document.getElementById("hold");
+const holdCtx=holdCanvas.getContext("2d");
+
+let board,current,next,hold=null;
+let x,y;
+let score=0, combo=0, linesCleared=0; // level削除
+let dropInterval=800,dropCounter=0,lastTime=0;
+let holdUsed=false,lastMoveRotate=false;
+let particles=[],shockwaves=[],lasers=[];
+let effectTimer=0,effectText="";
+let gameOver=false,paused=false;
+//let lockDelay=500,lockTimer=0;
+let backToBack=false;
+
+const pieces={
+I:[[1,1,1,1]],
+O:[[1,1],[1,1]],
+T:[[0,1,0],[1,1,1]],
+L:[[0,0,1],[1,1,1]],
+J:[[1,0,0],[1,1,1]],
+S:[[0,1,1],[1,1,0]],
+Z:[[1,1,0],[0,1,1]]
+};
+
+const colors={
+I:"#00f7ff",O:"#ffe600",T:"#c400ff",
+L:"#ff8800",J:"#0066ff",S:"#00ff88",Z:"#ff0044"
+};
+
+function init(){
+board=Array.from({length:ROWS},()=>Array(COLS).fill(0));
+score=0;level=1;combo=0;
+dropInterval=800;
+
+hold = null;      // ← 追加
+holdUsed = false; // ← 追加
+
+next=randomPiece();
+resetPiece();
+updateUI();
+}
+
+function randomPiece(){
+const keys=Object.keys(pieces);
+const name=keys[Math.floor(Math.random()*keys.length)];
+return {name,shape:pieces[name].map(r=>[...r])};
+}
+
+function resetPiece(){
+current=next;
+next=randomPiece();
+x=3;y=0;
+holdUsed=false;
+lockTimer=0;
+if(collision()) gameOver=true;
+}
+
+function collision(tx=x,ty=y,shape=current.shape){
+return shape.some((r,ry)=>
+r.some((v,cx)=>{
+if(!v) return false;
+let nx=tx+cx,ny=ty+ry;
+return nx<0||nx>=COLS||ny>=ROWS||board[ny]?.[nx];
+}));
+}
+
+function merge(){
+current.shape.forEach((r,ry)=>
+r.forEach((v,cx)=>{
+if(v) board[y+ry][x+cx]=colors[current.name];
+}));
+}
+
+function spawnExplosion(cx,cy,color){
+for(let i=0;i<15;i++){
+particles.push({
+x:cx*SIZE+SIZE/2,
+y:cy*SIZE+SIZE/2,
+vx:(Math.random()-0.5)*8,
+vy:(Math.random()-0.5)*8,
+life:40,
+color
+});
+}
+}
+
+function spawnShockwave(){
+shockwaves.push({radius:0,alpha:1});
+}
+
+function spawnTetrisLaser(){
+for(let i=0;i<COLS;i++){
+lasers.push({x:i*SIZE+SIZE/2,alpha:1});
+}
+}
+
+function clearLines(){
+    let lines=0;
+    let cleared=[];
+
+    for(let r=ROWS-1;r>=0;r--){
+        if(board[r].every(v=>v)){
+            cleared.push(r);
+            board.splice(r,1);
+            board.unshift(Array(COLS).fill(0));
+            lines++;
+            r++;
+        }
+    }
+
+    let tspin=false;
+    if(current.name==="T" && lastMoveRotate){
+        let corners=0;
+        const cx=x+1,cy=y+1;
+        [[cx-1,cy-1],[cx+1,cy-1],[cx-1,cy+1],[cx+1,cy+1]].forEach(([px,py])=>{
+            if(px<0||px>=COLS||py>=ROWS||board[py]?.[px]) corners++;
+        });
+        if(corners>=3) tspin=true;
+    }
+
+    let special=tspin||lines===4;
+
+    if(lines>0){
+        cleared.forEach(r=>{
+            for(let c=0;c<COLS;c++){
+                spawnExplosion(c,r,"#00f7ff");
+            }
+        });
+
+        spawnShockwave();
+        combo++;
+
+        if(special){
+            if(backToBack) score+=1200;
+            else score+=800;
+            backToBack=true;
+
+            if(tspin) effectText="T-SPIN!";
+            if(lines===4){ effectText="TETRIS!!!"; spawnTetrisLaser(); }
+
+            effectTimer=40;
+        }else{
+            score+=lines*100;
+            backToBack=false;
+        }
+
+        score+=combo*50;
+
+        linesCleared += lines; // ←累計ライン数を加算
+
+    }else{
+        combo=0;
+        backToBack=false;
+    }
+
+    updateUI();
+    lastMoveRotate=false;
+}
+
+function updateUI(){
+    scoreEl.textContent = score;
+    comboEl.textContent = combo;
+    linesEl.textContent = linesCleared; // レベル表示をライン数に
+}
+
+const scoreEl=document.getElementById("score");
+const linesEl=document.getElementById("lines"); // 追加
 const comboEl=document.getElementById("combo");
 
 function move(d){
